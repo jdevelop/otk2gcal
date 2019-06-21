@@ -9,15 +9,20 @@ import (
 	"msclnd/auth"
 	"msclnd/calendar"
 	"msclnd/messaging"
+	"msclnd/storage"
 	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
 
-var interval = flag.String("interval", "1h", "Event interval")
+var (
+	interval = flag.String("interval", "1h", "Event interval")
+	dbPath   = flag.String("db", "", "database path")
+)
 
 //	callback     = flag.String("oauthcb", "http://localhost:8083/confirm", "OAuth callback url")
 type config struct {
@@ -37,6 +42,9 @@ func main() {
 		log.Fatal(err)
 	}
 	confPath := filepath.Join(u.HomeDir, ".msclndrc")
+	if *dbPath == "" {
+		*dbPath = filepath.Join(u.HomeDir, ".msclndrc.db")
+	}
 
 	var c config
 
@@ -97,7 +105,12 @@ func main() {
 		intervalTime = d
 	}
 
-	events, err := cal.GetMyEvents(&c.Tokens, current, current.Add(intervalTime))
+	startTime, endTime := current, current.Add(intervalTime)
+	if startTime.After(endTime) {
+		startTime, endTime = endTime, startTime
+	}
+
+	events, err := cal.GetMyEvents(&c.Tokens, startTime, endTime)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -108,12 +121,6 @@ func main() {
 
 	log.Printf("Found %d events\n", len(events))
 
-	var msg strings.Builder
-
-	for _, v := range events {
-		msg.WriteString(fmt.Sprintf("%s at %s / %s\n", v.Subject, v.Start.Format(time.RFC3339), v.End.Format(time.RFC3339)))
-	}
-
 	var sender messaging.Sender
 
 	if c.SlackUrl != "" {
@@ -122,6 +129,42 @@ func main() {
 		sender = messaging.NewLogger()
 	}
 
-	sender.SendMessage("", msg.String())
+	var (
+		msg        strings.Builder
+		idsStorage storage.EventsStorage
+	)
+
+	if s, err := storage.NewBoltEventStorage(*dbPath); err != nil {
+		sender.SendMessage("", fmt.Sprintf("Can't open storage: %+v", err))
+		idsStorage = storage.NewNoop()
+	} else {
+		idsStorage = s
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Start.Before(*events[j].Start)
+	})
+
+	toSend := make([]string, 0, len(events))
+
+	for _, v := range events {
+		exists, err := idsStorage.IsExist(v.Id)
+		if err != nil {
+			sender.SendMessage("", fmt.Sprintf("Can't look up ID %s: %+v", v.Id, err))
+			os.Exit(1)
+		}
+
+		if !exists {
+			msg.WriteString(fmt.Sprintf("*%s* at *%s* [ %s ]\n", v.Subject, v.Start.Format(time.RFC822), v.End.Sub(*v.Start).String()))
+			toSend = append(toSend, v.Id)
+		}
+	}
+
+	if len(toSend) > 0 {
+		sender.SendMessage("", msg.String())
+		if err := idsStorage.AddEvents(toSend...); err != nil {
+			sender.SendMessage("", fmt.Sprintf("Can't add ids to the storage %+v", err))
+		}
+	}
 
 }

@@ -111,9 +111,9 @@ func (c *Calendar) GetMyEvents(tokens *auth.Tokens, start, end time.Time) ([]Eve
 }
 
 func init() {
-	location, err := time.LoadLocation("EST")
-	if err != nil {
+	if z, err := time.LoadLocation("America/New_York"); err != nil {
 		panic(err)
+	} else {
+		est = *z
 	}
-	est = *location
 }
