@@ -19,6 +19,7 @@ type Calendar struct {
 }
 
 type Event struct {
+	Id         string
 	Subject    string
 	Start, End *time.Time
 	Organizer  string
@@ -30,6 +31,7 @@ func New(client *http.Client) *Calendar {
 
 type response struct {
 	Values []struct {
+		Id      string `json:"id"`
 		Subject string `json:"subject"`
 		Start   struct {
 			DateTime string `json:"dateTime"`
@@ -97,6 +99,7 @@ func (c *Calendar) GetMyEvents(tokens *auth.Tokens, start, end time.Time) ([]Eve
 
 	for i, v := range r.Values {
 		evts[i] = Event{
+			Id:        v.Id,
 			Organizer: v.Organizer.EmailAddress.Name,
 			Subject:   v.Subject,
 			Start:     parseWithTz(v.Start.DateTime, v.Start.TimeZone),
