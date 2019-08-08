@@ -15,7 +15,6 @@ const (
 
 type Calendar struct {
 	client *http.Client
-	a      *auth.Auth
 }
 
 type Event struct {
@@ -63,7 +62,7 @@ func parseWithTz(timeString, tz string) *time.Time {
 	return &t
 }
 
-func (c *Calendar) GetMyEvents(tokens *auth.Tokens, start, end time.Time) ([]Event, error) {
+func (c *Calendar) GetMyEvents(tokens *auth.OutlookTokens, start, end time.Time) ([]Event, error) {
 	req, err := http.NewRequest(http.MethodGet, "https://graph.microsoft.com/v1.0/me/calendarview", nil)
 	if err != nil {
 		return nil, err

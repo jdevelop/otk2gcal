@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"msclnd/auth"
 	"msclnd/calendar"
@@ -17,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 var (
@@ -24,13 +25,33 @@ var (
 	dbPath   = flag.String("db", "", "database path")
 )
 
-//	callback     = flag.String("oauthcb", "http://localhost:8083/confirm", "OAuth callback url")
 type config struct {
-	Callback     string      `json:"callback"`
-	ClientId     string      `json:"client_id"`
-	ClientSecret string      `json:"client_secret"`
-	SlackUrl     string      `json:"slack_url"`
-	Tokens       auth.Tokens `json:"tokens"`
+	OutlookConf   auth.OutlookConf   `json:"outlook_conf"`
+	GoogleCalConf auth.GoogleCalConf `json:"google_cal_conf"`
+	SlackUrl      string             `json:"slack_url"`
+}
+
+func initDataDir(u *user.User) (string, error) {
+	dir := filepath.Join(u.HomeDir, ".msclnd")
+	fi, err := os.Stat(dir)
+	switch {
+	case err != nil:
+		switch {
+		case os.IsNotExist(err):
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				return "", errors.Wrapf(err, "can't create foler %s", dir)
+			}
+			return dir, nil
+		}
+	default:
+		if !fi.IsDir() {
+			return "", fmt.Errorf("not a folder %s", dir)
+		}
+	}
+	return dir, nil
+}
+
+func initOutlookCalendar() {
 }
 
 func main() {
@@ -42,8 +63,14 @@ func main() {
 		log.Fatal(err)
 	}
 	confPath := filepath.Join(u.HomeDir, ".msclndrc")
+
+	dir, err := initDataDir(u)
+	if err != nil {
+		log.Fatalf("can't initiaize folder %+v", err)
+	}
+
 	if *dbPath == "" {
-		*dbPath = filepath.Join(u.HomeDir, ".msclndrc.db")
+		*dbPath = filepath.Join(dir, "msclndrc.db")
 	}
 
 	var c config
@@ -63,32 +90,13 @@ func main() {
 		Timeout: 30 * time.Second,
 	}
 
-	a, err := auth.New(c.ClientId, c.ClientSecret, c.Callback, client)
+	outlookTokens, err := auth.NewOutlookTokens(c.OutlookConf, client, filepath.Join(dir, "outlook.json"))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if c.Tokens.RefreshToken != "" {
-		if t, err := a.RefreshTokens(c.Tokens.RefreshToken); err != nil {
-			log.Fatalf("Can't refresh tokens from %+v\n", err)
-		} else {
-			c.Tokens = *t
-		}
-	} else {
-		fmt.Printf("Please login at: %s\n", a.GetLoginUrl())
-		t, err := a.GetTokens()
-		if err != nil {
-			log.Fatal(err)
-		}
-		c.Tokens = *t
-	}
-
-	confData, err := json.Marshal(&c)
+	googleCal, err := calendar.NewGoogleCal(c.GoogleCalConf, filepath.Join(dir, "google.json"))
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := ioutil.WriteFile(confPath, confData, 0600); err != nil {
 		log.Fatal(err)
 	}
 
@@ -110,7 +118,7 @@ func main() {
 		startTime, endTime = endTime, startTime
 	}
 
-	events, err := cal.GetMyEvents(&c.Tokens, startTime, endTime)
+	events, err := cal.GetMyEvents(outlookTokens, startTime, endTime)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -146,6 +154,7 @@ func main() {
 	})
 
 	toSend := make([]string, 0, len(events))
+	toSync := make([]calendar.Event, 0)
 
 	for _, v := range events {
 		exists, err := idsStorage.IsExist(v.Id)
@@ -157,6 +166,7 @@ func main() {
 		if !exists {
 			msg.WriteString(fmt.Sprintf("*%s* at *%s* [ %s ]\n", v.Subject, v.Start.Format(time.RFC822), v.End.Sub(*v.Start).String()))
 			toSend = append(toSend, v.Id)
+			toSync = append(toSync, v)
 		}
 	}
 
@@ -164,6 +174,9 @@ func main() {
 		sender.SendMessage("", msg.String())
 		if err := idsStorage.AddEvents(toSend...); err != nil {
 			sender.SendMessage("", fmt.Sprintf("Can't add ids to the storage %+v", err))
+		}
+		if err := googleCal.AddEvents(toSync); err != nil {
+			log.Printf("Can't sync calendar: %+v", err)
 		}
 	}
 
