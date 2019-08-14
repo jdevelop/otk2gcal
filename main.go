@@ -21,8 +21,9 @@ import (
 )
 
 var (
-	interval = flag.String("interval", "1h", "Event interval")
-	dbPath   = flag.String("db", "", "database path")
+	interval   = flag.String("interval", "1h", "Event interval")
+	dbPath     = flag.String("db", "", "database path")
+	calendarId = flag.String("calendarId", "", "Google calendar id")
 )
 
 type config struct {
@@ -95,7 +96,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	googleCal, err := calendar.NewGoogleCal(c.GoogleCalConf, filepath.Join(dir, "google.json"))
+	googleCal, err := calendar.NewGoogleCal(c.GoogleCalConf, filepath.Join(dir, "google.json"), *calendarId)
 	if err != nil {
 		log.Fatal(err)
 	}

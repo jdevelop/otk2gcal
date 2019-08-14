@@ -16,8 +16,9 @@ import (
 )
 
 type GoogleCal struct {
-	tokenFile string
-	svc       *calendar.Service
+	calendarId string
+	tokenFile  string
+	svc        *calendar.Service
 }
 
 // Retrieve a token, saves the token, then returns the generated client.
@@ -102,10 +103,11 @@ func (gc *GoogleCal) AddEvents(events []Event) error {
 		Errors: make([]error, 0),
 	}
 	for _, evt := range events {
+		fmt.Printf("Adding event %v\n", evt)
 		if _, err := gc.svc.Events.Insert(
-			"",
+			gc.calendarId,
 			&calendar.Event{
-				Summary: evt.Subject,
+				Summary: evt.Subject + " by [ " + evt.Organizer + " ]",
 				Start: &calendar.EventDateTime{
 					DateTime: evt.Start.Format(time.RFC3339),
 					TimeZone: "UTC",
@@ -116,6 +118,7 @@ func (gc *GoogleCal) AddEvents(events []Event) error {
 				},
 			},
 		).Do(); err != nil {
+			fmt.Printf("Failed to add event: %+v\n", err)
 			addErrors.Events = append(addErrors.Events, evt)
 			addErrors.Errors = append(addErrors.Errors, err)
 		}
@@ -127,7 +130,7 @@ func (gc *GoogleCal) AddEvents(events []Event) error {
 	}
 }
 
-func NewGoogleCal(googleCreds auth.GoogleCalConf, tokenFile string) (*GoogleCal, error) {
+func NewGoogleCal(googleCreds auth.GoogleCalConf, tokenFile string, calendarId string) (*GoogleCal, error) {
 	config := &oauth2.Config{
 		ClientID:     googleCreds.Installed.ClientID,
 		ClientSecret: googleCreds.Installed.ClientSecret,
@@ -146,7 +149,8 @@ func NewGoogleCal(googleCreds auth.GoogleCalConf, tokenFile string) (*GoogleCal,
 		return nil, errors.Wrap(err, "can't create Google calendar instance")
 	}
 	return &GoogleCal{
-		tokenFile,
-		srv,
+		calendarId: calendarId,
+		tokenFile:  tokenFile,
+		svc:        srv,
 	}, nil
 }
