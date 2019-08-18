@@ -3,8 +3,8 @@ package calendar
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jdevelop/otk2gcal/auth"
 	"log"
-	"msclnd/auth"
 	"net/http"
 	"os"
 	"time"

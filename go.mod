@@ -1,4 +1,4 @@
-module msclnd
+module github.com/jdevelop/otk2gcal
 
 go 1.12
 
